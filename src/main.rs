@@ -124,7 +124,7 @@ const ENEMY_SIZE: f32 = 128.0;
 
 const ENEMY_SPEED: f32 = 200.0;
 
-const ENEMY_AMOUNT: usize = 10;
+const ENEMY_AMOUNT: usize = 20;
 
 #[derive(Component)]
 struct Enemy {
@@ -137,12 +137,18 @@ fn spawn_enemy(
     asset_server: Res<AssetServer>,
 ) {
     let window = window_query.get_single().unwrap();
-
-    for _ in 0..ENEMY_AMOUNT {
+    let mut spawn_history = Vec::new();
+    while spawn_history.len() < ENEMY_AMOUNT {
         let x =
             (random::<f32>() * window.width()).clamp(0.0 + ENEMY_SIZE, window.width() - ENEMY_SIZE);
         let y = (random::<f32>() * window.height())
             .clamp(0.0 + ENEMY_SIZE, window.height() - ENEMY_SIZE);
+
+        if spawn_history.iter().any(|(spawn_x, spawn_y)| {
+            (x - spawn_x).abs() < ENEMY_SIZE && (y - spawn_y).abs() < ENEMY_SIZE
+        }) {
+            continue;
+        }
 
         commands.spawn((
             SpriteBundle {
@@ -154,6 +160,8 @@ fn spawn_enemy(
                 direction: Vec2::new(random::<f32>(), random::<f32>()).normalize(),
             },
         ));
+
+        spawn_history.push((x, y));
     }
 }
 
