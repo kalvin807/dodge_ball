@@ -16,7 +16,10 @@ impl Plugin for HelloPlugin {
                     player_movement,
                     player_movement_box,
                     enemy_movement,
+                    update_enemy_direction,
                     enemy_movement_box,
+                    enemy_collide_player,
+                    enemy_collide_enemy,
                 ),
             );
     }
@@ -119,9 +122,9 @@ fn player_movement_box(
 
 const ENEMY_SIZE: f32 = 128.0;
 
-const ENEMY_SPEED: f32 = 500.0;
+const ENEMY_SPEED: f32 = 200.0;
 
-const ENEMY_AMOUNT: usize = 10000000;
+const ENEMY_AMOUNT: usize = 10;
 
 #[derive(Component)]
 struct Enemy {
@@ -136,8 +139,10 @@ fn spawn_enemy(
     let window = window_query.get_single().unwrap();
 
     for _ in 0..ENEMY_AMOUNT {
-        let x = random::<f32>() * window.width();
-        let y = random::<f32>() * window.height();
+        let x =
+            (random::<f32>() * window.width()).clamp(0.0 + ENEMY_SIZE, window.width() - ENEMY_SIZE);
+        let y = (random::<f32>() * window.height())
+            .clamp(0.0 + ENEMY_SIZE, window.height() - ENEMY_SIZE);
 
         commands.spawn((
             SpriteBundle {
@@ -160,19 +165,44 @@ fn enemy_movement(mut enemy_query: Query<(&mut Transform, &Enemy)>, time: Res<Ti
     }
 }
 
-fn enemy_movement_box(
+fn update_enemy_direction(
     mut enemy_query: Query<(&mut Transform, &mut Enemy)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
-    for (mut transform, mut enemy) in enemy_query.iter_mut() {
-        let window = window_query.get_single().unwrap();
+    let window = window_query.get_single().unwrap();
+    let half_enemy_size = ENEMY_SIZE / 2.0;
+    let x_min = 0.0 + half_enemy_size;
+    let x_max = window.width() - half_enemy_size;
+    let y_min = 0.0 + half_enemy_size;
+    let y_max = window.height() - half_enemy_size;
 
-        let half_enemy_size = ENEMY_SIZE / 2.0;
-        let x_min = 0.0 + half_enemy_size;
-        let x_max = window.width() - half_enemy_size;
-        let y_min = 0.0 + half_enemy_size;
-        let y_max = window.height() - half_enemy_size;
+    for (transform, mut enemy) in enemy_query.iter_mut() {
+        let translation = transform.translation;
+        // change direction
+        if translation.x < x_min || translation.x > x_max {
+            println!("Change direction x!");
+            enemy.direction.x *= -1.0;
+        }
+        if translation.y < y_min || translation.y > y_max {
+            println!("Change direction y!");
+            enemy.direction.y *= -1.0;
+        }
+    }
+}
 
+fn enemy_movement_box(
+    mut enemy_query: Query<&mut Transform, With<Enemy>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+) {
+    let window = window_query.get_single().unwrap();
+
+    let half_enemy_size = ENEMY_SIZE / 2.0;
+    let x_min = 0.0 + half_enemy_size;
+    let x_max = window.width() - half_enemy_size;
+    let y_min = 0.0 + half_enemy_size;
+    let y_max = window.height() - half_enemy_size;
+
+    for mut transform in enemy_query.iter_mut() {
         let mut translation = transform.translation;
 
         if translation.x < x_min {
@@ -188,13 +218,57 @@ fn enemy_movement_box(
         }
 
         transform.translation = translation;
+    }
+}
 
-        // change direction
-        if translation.x == x_min || translation.x == x_max {
-            enemy.direction.x *= -1.0;
+fn enemy_collide_player(
+    mut commands: Commands,
+    mut player_query: Query<(Entity, &Transform), With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>,
+) {
+    if let Ok((player_entity, player_transform)) = player_query.get_single_mut() {
+        for enemy_transform in enemy_query.iter() {
+            let dist = player_transform
+                .translation
+                .distance(enemy_transform.translation);
+
+            if dist < PLAYER_SIZE / 2.0 + ENEMY_SIZE / 2.0 {
+                println!("You died!");
+                commands.entity(player_entity).despawn();
+            }
         }
-        if translation.y == y_min || translation.y == y_max {
-            enemy.direction.y *= -1.0;
+    }
+}
+
+fn enemy_collide_enemy(
+    enemy_transform_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut enemy_query: Query<&mut Enemy>,
+) {
+    for (enemy_entity, enemy_transform) in enemy_transform_query.iter() {
+        for (other_enemy_entity, other_enemy_transform) in enemy_transform_query.iter() {
+            if enemy_entity != other_enemy_entity {
+                let dist = enemy_transform
+                    .translation
+                    .distance(other_enemy_transform.translation);
+
+                if dist < ENEMY_SIZE / 2.0 + ENEMY_SIZE / 2.0 {
+                    println!("Collide!");
+                    let collision_normal =
+                        enemy_transform.translation - other_enemy_transform.translation;
+                    let collision_normal =
+                        Vec2::new(collision_normal.x, collision_normal.y).normalize();
+                    // reflection angle
+                    if let Ok(enemy) = enemy_query.get(enemy_entity) {
+                        let enemy_1_reflection = (enemy.direction
+                            - 2.0 * enemy.direction.dot(collision_normal) * collision_normal)
+                            .normalize();
+
+                        if let Ok(mut enemy_1_mut) = enemy_query.get_mut(enemy_entity) {
+                            enemy_1_mut.direction = enemy_1_reflection;
+                        }
+                    }
+                }
+            }
         }
     }
 }
